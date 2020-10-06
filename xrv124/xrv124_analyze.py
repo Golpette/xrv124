@@ -1,3 +1,4 @@
+import sys
 from os import listdir
 from os.path import isfile, join, splitext
 from math import sin, cos, radians
@@ -14,11 +15,25 @@ from lmfit import Parameters
 
 
 
+
 # % threshold for finding centre of BB shadow in entry-exit image
 THRESHOLD = 50.0   
 
 # % threshold for finding centroid of spots
 THRESH_CENTROID = 50.0
+
+
+
+
+def progress_bar(value, endvalue, bar_length=50):
+    """Displays percentage of beams processed"""
+
+    percent = float(value) / endvalue
+    arrow = '-' * int(round(percent * bar_length))
+    spaces = ' ' * (bar_length - len(arrow))
+
+    sys.stdout.write("\r[{0}] {1}%".format(arrow + spaces, int(round(percent * 100))))
+    sys.stdout.flush()
 
 
 
@@ -102,10 +117,9 @@ def get_centroid_of_largest_region( img, threshold, ga=None, en=None ):
     # Centroid of first labeled object
     # Centroid coordinate tuple is (row, col) - i.e. (y,x) so need to flip it
     # Rounded to nearest pixel 
-    ##centroid = [ int(round(largest_region.centroid[1],0)), int(round(largest_region.centroid[0],0)) ] ## Now (x,y)
+    centroid = [ int(round(largest_region.centroid[1],0)), int(round(largest_region.centroid[0],0)) ] ## Now (x,y)
     # Leave coord as float 
     ##centroid = [ largest_region.centroid[1], largest_region.centroid[0] ] ## Now (x,y)
-    centroid = [ largest_region.centroid[1], largest_region.centroid[0] ] ## Now (x,y)
 
     return centroid
 
@@ -113,7 +127,7 @@ def get_centroid_of_largest_region( img, threshold, ga=None, en=None ):
 
 
 def analyse_shifts(directory, beams, GANTRY, ENERGY):
-    """Analyse spot shifts in x,y of image coordinates
+    """Analyse spot shifts in x,y of IMAGE COORDINATES
 
     Q: define shift from centre of image or centre of spot???
 
@@ -126,10 +140,12 @@ def analyse_shifts(directory, beams, GANTRY, ENERGY):
 
     spot_img_centre_shifts = []
     centre_shifts = []
-
+    
     for ga in GANTRY:
         for en in ENERGY:
             cnt+=1
+            
+            progress_bar(cnt, len(beams) )
 
             # key for storing result
             k = "GA"+str(ga)+"E"+str(en)
@@ -184,15 +200,15 @@ def analyse_shifts(directory, beams, GANTRY, ENERGY):
             # Need to be sure regionprops works well
             ############################################################################
             # Shift reported as centrOfImage - centreOfBBShadow
-            ####shift_pixels = np.array(imagecentre) - np.array(shadowcentre)
+            shift_pixels = np.array(imagecentre) - np.array(shadowcentre)
             #
             # Shift as centreOfExitSpot - centreOfBBShadow            
-            ###shift_pixels = np.array(exitspotcentre) - np.array(shadowcentre)
+            ##shift_pixels = np.array(exitspotcentre) - np.array(shadowcentre)
 
             # I think we should use some info from the spots rather than just the image
             # coordinate centre. DECISION: avg entry and exit spot centres and use a 
             # threshold value (to determine centroid) of 50%
-            shift_pixels = np.array(avgcentre) - np.array(shadowcentre)
+            ###shift_pixels = np.array(avgcentre) - np.array(shadowcentre)
             ########################################################################### 
 
             # i.e. record shift  as tuple (x,y)
@@ -219,20 +235,30 @@ def analyse_shifts(directory, beams, GANTRY, ENERGY):
     #print("Mean shift (mm) from centre of entry and exit spot = {}".format( pitch*sum(centre_shifts)/len(centre_shifts) ) )
     #print("Max shift = {}".format( max(centre_shifts)*pitch ) )
             
+    # New line after porgress bar
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+            
     return results
         
 
 
 
-def analyse_spot_sizes(directory, beams, GANTRY, ENERGY):
-    """Retrieve ntry spot "diameter" from csv file
+def read_spot_diameters(directory, beams, GANTRY, ENERGY):
+    """Retrieve entry spot "diameter" from csv file
     FUNCTION WILL NOT WORK IF THERE IS MISSING DATA
     """
+    
+    #TODO: Should I take the average of the entry and exit spot diameters?
+    
     results = {}
     cnt = -1
     for ga in GANTRY:
         for en in ENERGY:
             cnt+=1
+            
+            progress_bar(cnt, len(beams) )
+            
             # key for storing result
             k = "GA"+str(ga)+"E"+str(en)
             with open( join(directory,beams[cnt])+".csv" ) as f:
@@ -240,6 +266,44 @@ def analyse_spot_sizes(directory, beams, GANTRY, ENERGY):
                 line = f.readline()
                 diameter = float( line.split("Diameter:,")[1].split(",")[0].strip() )
                 results[k] = diameter
+
+    # New line after porgress bar
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+    return results
+
+
+
+
+def read_arc_radial_widths(directory, beams, GANTRY, ENERGY):
+    """Retrieve entry spot "arc" (BEV-X) and "radial" (BEV-Y) widths 
+    from entry spot csv file
+    """
+        
+    results = {}
+    cnt = -1
+    for ga in GANTRY:
+        for en in ENERGY:
+            cnt+=1
+            
+            progress_bar(cnt, len(beams) )
+            
+            # key for storing result
+            k = "GA"+str(ga)+"E"+str(en)
+            with open( join(directory,beams[cnt])+".csv" ) as f:
+                arc, radial = None, None
+                for line in f.readlines():
+                    if "Arc Style" in line:
+                        arc = float( line.split("Entry (mm):,")[1].split(",")[0].strip() )
+                    if "Radial Style" in line:
+                        radial = float( line.split("Entry (mm):,")[1].split(",")[0].strip() )             
+
+            results[k] = (arc,radial)
+
+    # New line after porgress bar
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
     return results
 
@@ -339,6 +403,8 @@ def analyse_spot_profiles(directory, beams, GANTRY, ENERGY):
     for ga in GANTRY:
         for en in ENERGY:    
             cnt+=1
+            
+            progress_bar(cnt, len(beams) )
 
             k="GA"+str(ga)+"E"+str(en) 
             # Print which file corresponds to which beam
@@ -346,13 +412,12 @@ def analyse_spot_profiles(directory, beams, GANTRY, ENERGY):
 
             entry, pitch = get_image_data( join(directory,beams[cnt])+".csv" ) 
 
-
-            # Angle profile = 0 at GA=0 SPOT and BEV and IMAGE axes all match
-            # hence implies x-profile in IMAGE COORDS but y profile in SPOT COORDS (AT GA=0)
+            ## Angle profile=0 at GA=0 SPOT and BEV and IMAGE axes all match
+            ## hence implies x-profile in IMAGE COORDS but y profile in SPOT COORDS (AT GA=0)
             ##x_sigma = sigma_angled_profile( entry, -ga, pitch )
             ##y_sigma = sigma_angled_profile( entry, 90-ga,  pitch )
 
-            ## USE THESE FOR FIXED IMAGE COORD PROFILES
+            ## USE THESE FOR FIXED IMAGE COORD PROFILES (BEV coords)
             x_sigma = sigma_angled_profile( entry, 0, pitch )
             y_sigma = sigma_angled_profile( entry, 90, pitch )
          
@@ -363,6 +428,10 @@ def analyse_spot_profiles(directory, beams, GANTRY, ENERGY):
                 print("x_sigma={}, y_sigma={}".format(x_sigma, y_sigma) )        
 
             results[k] = (x_sigma, y_sigma)
+            
+    # New line after porgress bar
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
     return results
 
